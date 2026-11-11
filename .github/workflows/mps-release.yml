@@ -173,7 +173,9 @@ jobs:
     - name: No OpenSSL shared library dependency
       run: |
         ldd bin/sumo
-        if ldd bin/sumo | grep -q libcrypto; then echo "sumo must link OpenSSL statically"; exit 1; fi
+        # Direct dependencies only: libproj -> libcurl pulls the system libcrypto in, which the keyring does not use
+        readelf -d bin/sumo | grep NEEDED
+        if readelf -d bin/sumo | grep NEEDED | grep -q libcrypto; then echo "sumo must link OpenSSL statically"; exit 1; fi
 
     - name: Collect
       run: |
