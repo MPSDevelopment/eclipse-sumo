@@ -20,6 +20,8 @@ set(utils_xml_STAT_SRCS
    SUMOSAXHandler.h
    SUMOSAXReader.cpp
    SUMOSAXReader.h
+   SUMOKeyring.cpp
+   SUMOKeyring.h
    SUMOXMLDefinitions.cpp
    SUMOXMLDefinitions.h
    XMLSubSys.cpp
@@ -28,3 +30,6 @@ set(utils_xml_STAT_SRCS
 
 add_library(utils_xml STATIC ${utils_xml_STAT_SRCS})
 set_property(TARGET utils_xml PROPERTY PROJECT_LABEL "z_utils_xml")
+if (SUMO_KEYRING)
+    target_link_libraries(utils_xml PUBLIC OpenSSL::Crypto)
+endif ()

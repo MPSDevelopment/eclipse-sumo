@@ -1,4 +1,6 @@
 set(utils_options_STAT_SRCS
+   HardenedOptions.cpp
+   HardenedOptions.h
    Option.cpp
    Option.h
    OptionsCont.cpp

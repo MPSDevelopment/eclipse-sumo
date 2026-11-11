@@ -38,6 +38,7 @@
 #include <foreign/zstr/zstr.hpp>
 #endif
 #include "IStreamInputSource.h"
+#include "SUMOKeyring.h"
 #include "SUMOSAXReader.h"
 
 using XERCES_CPP_NAMESPACE::SAX2XMLReader;
@@ -114,9 +115,9 @@ SUMOSAXReader::parse(std::string systemID) {
         throw IOError(TLF("File '%' is a directory!", systemID));
     }
     ensureSAXReader();
-#ifdef HAVE_ZLIB
-    zstr::ifstream istream(XMLSubSys::transcodeToLocal(systemID).c_str(), std::fstream::in | std::fstream::binary);
-    myXMLReader->parse(IStreamInputSource(istream));  // NOSONAR
+#if defined(HAVE_ZLIB) || defined(HAVE_KEYRING)
+    std::unique_ptr<std::istream> istream = SUMOKeyring::open(systemID);
+    myXMLReader->parse(IStreamInputSource(*istream));  // NOSONAR
 #else
     myXMLReader->parse(XMLSubSys::transcodeToLocal(systemID).c_str());  // NOSONAR
 #endif
@@ -141,8 +142,8 @@ SUMOSAXReader::parseFirst(std::string systemID) {
     }
     ensureSAXReader();
     myToken = XERCES_CPP_NAMESPACE::XMLPScanToken();
-#ifdef HAVE_ZLIB
-    myIStream = std::unique_ptr<zstr::ifstream>(new zstr::ifstream(XMLSubSys::transcodeToLocal(systemID).c_str(), std::fstream::in | std::fstream::binary));
+#if defined(HAVE_ZLIB) || defined(HAVE_KEYRING)
+    myIStream = SUMOKeyring::open(systemID);
     myInputStream = std::unique_ptr<IStreamInputSource>(new IStreamInputSource(*myIStream));
     return myXMLReader->parseFirst(*myInputStream, myToken);  // NOSONAR
 #else

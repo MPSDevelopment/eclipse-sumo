@@ -38,6 +38,7 @@
 #include <libsumo/TraCIConstants.h>
 #include <libsumo/StorageHelper.h>
 #include "TraCIServerAPI_Simulation.h"
+#include <utils/xml/SUMOKeyring.h>
 
 
 // ===========================================================================
@@ -277,6 +278,9 @@ TraCIServerAPI_Simulation::processSet(TraCIServer& server, tcpip::Storage& input
                 libsumo::Simulation::clearPending(StoHelp::readTypedString(inputStorage, "A string is needed for clearing pending vehicles."));
                 break;
             case libsumo::CMD_SAVE_SIMSTATE:
+                if (SUMOKeyring::isRequired()) {
+                    return server.writeErrorStatusCmd(libsumo::CMD_SET_SIM_VARIABLE, "Saving the state is disabled in this build.", outputStorage);
+                }
                 //save current simulation state
                 libsumo::Simulation::saveState(StoHelp::readTypedString(inputStorage, "A string is needed for saving simulation state."));
                 break;

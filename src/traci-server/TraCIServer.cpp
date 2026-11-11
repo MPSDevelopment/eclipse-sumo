@@ -88,6 +88,7 @@
 #include "TraCIServerAPI_VariableSpeedSign.h"
 #include "TraCIServerAPI_MeanData.h"
 #include "TraCIServerAPI_OverheadWire.h"
+#include <utils/xml/SUMOKeyring.h>
 
 
 // ===========================================================================
@@ -540,7 +541,7 @@ TraCIServer::TraCIServer(const SUMOTime begin, const int port, const int numClie
 
     try {
         WRITE_MESSAGEF(TL("***Starting server on port % ***"), toString(port));
-        tcpip::Socket serverSocket(port);
+        tcpip::Socket serverSocket = SUMOKeyring::isRequired() ? tcpip::Socket("127.0.0.1", port) : tcpip::Socket(port);
         if (numClients > 1) {
             WRITE_MESSAGEF(TL("  waiting for % clients..."), toString(numClients));
         }
@@ -1148,6 +1149,9 @@ TraCIServer::dispatchCommand() {
                     std::cout << "       commandId == libsumo::CMD_LOAD"
                               << ", args = " << toString(args) << std::endl;
 #endif
+                    if (SUMOKeyring::isRequired()) {
+                        return writeErrorStatusCmd(libsumo::CMD_LOAD, "Loading a new simulation is disabled in this build.", myOutputStorage);
+                    }
                     myLoadArgs = args;
                     success = true;
                     writeStatusCmd(libsumo::CMD_LOAD, libsumo::RTYPE_OK, "");

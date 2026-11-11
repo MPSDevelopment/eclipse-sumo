@@ -32,6 +32,7 @@
 #include <utils/common/MsgHandler.h>
 #include <utils/common/SystemFrame.h>
 #include <utils/options/OptionsIO.h>
+#include <utils/xml/SUMOKeyring.h>
 #include <utils/xml/XMLSubSys.h>
 #include <traci-server/TraCIServer.h>
 
@@ -81,6 +82,13 @@ main(int argc, char** argv) {
     signal(SIGUSR2, signalHandler);
 #endif
 
+#ifdef SUMO_HARDENED
+    if (!SUMOKeyring::initFromArgs(argc, argv, true)) {
+#else
+    if (!SUMOKeyring::initFromArgs(argc, argv, false)) {
+#endif
+        return 1;
+    }
     OptionsCont& oc = OptionsCont::getOptions();
     // give some application descriptions
     oc.setApplicationDescription(TL("A microscopic, multi-modal traffic simulation."));

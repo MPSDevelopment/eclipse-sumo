@@ -43,6 +43,7 @@
 #include <foreign/zstr/zstr.hpp>
 #endif
 #include <utils/xml/IStreamInputSource.h>
+#include <utils/xml/SUMOKeyring.h>
 
 
 // ===========================================================================
@@ -117,7 +118,12 @@ OptionsIO::loadConfiguration() {
         try {
             parser.setDocumentHandler(&handler);
             parser.setErrorHandler(&handler);
+#if defined(HAVE_ZLIB) || defined(HAVE_KEYRING)
+            std::unique_ptr<std::istream> istream = SUMOKeyring::open(path);
+            parser.parse(IStreamInputSource(*istream));
+#else
             parser.parse(XMLSubSys::transcodeToLocal(path).c_str());
+#endif
             if (handler.errorOccurred()) {
                 throw ProcessError(TLF("Could not load configuration '%'.", path));
             }
@@ -154,9 +160,9 @@ OptionsIO::getRoot(const std::string& filename) {
         if (!FileHelpers::isReadable(filename) || FileHelpers::isDirectory(filename)) {
             throw ProcessError(TLF("Could not open '%'.", filename));
         }
-#ifdef HAVE_ZLIB
-        zstr::ifstream istream(XMLSubSys::transcodeToLocal(filename).c_str(), std::fstream::in | std::fstream::binary);
-        IStreamInputSource inputStream(istream);
+#if defined(HAVE_ZLIB) || defined(HAVE_KEYRING)
+        std::unique_ptr<std::istream> istream = SUMOKeyring::open(filename);
+        IStreamInputSource inputStream(*istream);
         const bool result = parser.parseFirst(inputStream, token);
 #else
         const bool result = parser.parseFirst(XMLSubSys::transcodeToLocal(filename).c_str(), token);

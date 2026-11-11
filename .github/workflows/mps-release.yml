@@ -1,0 +1,202 @@
+name: mps-release
+
+# MPSDevelopment fork: one release zip per push to main with the hardened sumo (Windows and Linux), netconvert and
+# the plain sumo-gui. See FORK.md.
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: mps-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      CC: cl
+      CXX: cl
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        filter: tree:0
+
+    # The release tag is mutable, so the zip is checked against the digest GitHub reported for this asset
+    # (2026-10-28 upload). Update tag and digest together.
+    - name: Fetching SUMO Libraries (pinned)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SUMOLIBRARIES_TAG: 1.29.0.dev
+        SUMOLIBRARIES_SHA256: f5ca4eaeaec1cd4d8dceb83d413a796c01d219251e1aa70341ff3f9a826a8217
+      run: |
+        gh release download "$SUMOLIBRARIES_TAG" --repo DLR-TS/SUMOLibraries \
+          --pattern "SUMOLibraries-$SUMOLIBRARIES_TAG.zip" --output "$RUNNER_TEMP/SUMOLibraries.zip"
+        echo "$SUMOLIBRARIES_SHA256  $RUNNER_TEMP/SUMOLibraries.zip" | sha256sum -c -
+        unzip -q -o "$RUNNER_TEMP/SUMOLibraries.zip"
+        dir="$(find "$PWD" -maxdepth 1 -type d -name 'SUMOLibraries*' | head -1)"
+        echo "SUMO_LIBRARIES=$(cygpath -m "$dir")" >> "$GITHUB_ENV"
+
+    - name: Set up MSVC Developer Command Prompt
+      uses: compnerd/gha-setup-vsdevenv@452f99effa381b81c025ccfbdccaca509bff1b29 # v7
+
+    - name: Set up Python
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      with:
+        python-version: '3.12'
+
+    # vcpkg pinned to release 2026.10.16 (openssl 3.6.5#2), not the runner's moving checkout.
+    - name: Static OpenSSL (pinned vcpkg, dynamic CRT like SUMO)
+      shell: pwsh
+      env:
+        VCPKG_COMMIT: 9eec002df1cd109f8f104cd966a763daf9751489
+      run: |
+        $root = "$env:RUNNER_TEMP\vcpkg"
+        git init -q $root
+        git -C $root fetch -q --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_COMMIT
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+        git -C $root checkout -q FETCH_HEAD
+        & "$root\bootstrap-vcpkg.bat" -disableMetrics
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+        & "$root\vcpkg.exe" install openssl:x64-windows-static-md
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+        "OPENSSL_ROOT_DIR=$root\installed\x64-windows-static-md" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    # One build: SUMO_HARDENED only changes the sumo target, sumo-gui and netconvert stay plain.
+    - name: Build
+      shell: pwsh
+      run: |
+        cmake -Bbuild_msvc -GNinja -DCMAKE_BUILD_TYPE=Release -DCHECK_OPTIONAL_LIBS=false `
+          -DENABLE_JAVA_BINDINGS=false -DENABLE_PYTHON_BINDINGS=false -DENABLE_CS_BINDINGS=false `
+          -DENABLE_NETEDIT=false -DENABLE_FMI=false -DENABLE_GTEST=false `
+          -DSUMO_KEYRING=ON -DSUMO_HARDENED=ON -DOPENSSL_USE_STATIC_LIBS=TRUE -DOPENSSL_MSVC_STATIC_RT=FALSE
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+        cmake --build build_msvc --target sumo sumo-gui netconvert keyring_encrypt install_dll
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+
+    - name: Keyring tests
+      shell: pwsh
+      run: ctest --test-dir build_msvc -L keyring --output-on-failure
+
+    - name: No OpenSSL DLL dependency
+      shell: pwsh
+      run: |
+        $deps = dumpbin /dependents bin\sumo.exe | Out-String
+        Write-Output $deps
+        if ($deps -match 'libcrypto') { throw "sumo.exe must link OpenSSL statically" }
+
+    - name: Collect
+      shell: pwsh
+      run: |
+        $out = "dist\windows"
+        New-Item -ItemType Directory -Force -Path $out\data | Out-Null
+        Copy-Item bin\sumo.exe, bin\sumo-gui.exe, bin\netconvert.exe -Destination $out
+        Copy-Item bin\*.dll -Destination $out
+        foreach ($d in 'xsd', 'typemap', 'proj') {
+          if (Test-Path data\$d) { Copy-Item -Recurse data\$d -Destination $out\data\$d }
+        }
+        New-Item -ItemType Directory -Force -Path dist\third-party | Out-Null
+        Get-ChildItem $env:SUMO_LIBRARIES -Recurse -Include 'LICENSE*', 'COPYING*', 'NOTICE*' -File |
+          ForEach-Object {
+            $rel = $_.FullName.Substring($env:SUMO_LIBRARIES.Length).TrimStart('\', '/') -replace '[\\/]', '_'
+            Copy-Item $_.FullName -Destination "dist\third-party\$rel"
+          }
+        Copy-Item "$env:OPENSSL_ROOT_DIR\share\openssl\copyright" -Destination dist\third-party\openssl_LICENSE.txt -ErrorAction SilentlyContinue
+
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: windows
+        path: dist
+
+  linux:
+    # oldest supported runner, so the binary runs on older server glibc
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        filter: tree:0
+
+    - name: Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake ninja-build g++ libxerces-c-dev libproj-dev zlib1g-dev libssl-dev python3
+
+    - name: Build
+      run: |
+        cmake -Bbuild -GNinja -DCMAKE_BUILD_TYPE=Release -DCHECK_OPTIONAL_LIBS=OFF -DENABLE_FOX=OFF \
+          -DENABLE_JAVA_BINDINGS=OFF -DENABLE_PYTHON_BINDINGS=OFF -DENABLE_CS_BINDINGS=OFF -DENABLE_NETEDIT=OFF \
+          -DENABLE_FMI=OFF -DENABLE_GTEST=OFF -DENABLE_PARQUET=OFF \
+          -DSUMO_KEYRING=ON -DSUMO_HARDENED=ON -DOPENSSL_USE_STATIC_LIBS=TRUE
+        cmake --build build --target sumo keyring_encrypt
+
+    - name: Keyring tests
+      run: ctest --test-dir build -L keyring --output-on-failure
+
+    - name: No OpenSSL shared library dependency
+      run: |
+        ldd bin/sumo
+        if ldd bin/sumo | grep -q libcrypto; then echo "sumo must link OpenSSL statically"; exit 1; fi
+
+    - name: Collect
+      run: |
+        mkdir -p dist/linux
+        cp bin/sumo dist/linux/sumo
+        strip dist/linux/sumo
+        ldd bin/sumo | awk '{print $1}' > dist/linux/shared-libraries.txt
+
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: linux
+        path: dist
+
+  release:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        filter: tree:0
+
+    - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      with:
+        path: artifacts
+
+    - name: Package
+      id: package
+      run: |
+        version="$(git describe --tags --always | sed 's/^v//')"
+        name="eclipse-sumo-mps-${version}-${GITHUB_RUN_NUMBER}"
+        mkdir -p "pkg/$name"
+        cp -r artifacts/windows/windows "pkg/$name/windows"
+        cp -r artifacts/windows/third-party "pkg/$name/third-party"
+        cp -r artifacts/linux/linux "pkg/$name/linux"
+        chmod +x "pkg/$name/linux/sumo"
+        cp LICENSE "pkg/$name/LICENSE-EPL-2.0.txt"
+        cp NOTICE.md FORK.md "pkg/$name/"
+        # every shipped file, executables and DLLs included, so DARTS can pin all of them
+        (cd "pkg/$name" && find . -type f | LC_ALL=C sort | xargs -d '\n' sha256sum > ../SHA256SUMS.tmp)
+        mv pkg/SHA256SUMS.tmp "pkg/$name/SHA256SUMS"
+        (cd pkg && zip -qr "../$name.zip" "$name")
+        sha256sum "$name.zip"
+        echo "name=$name" >> "$GITHUB_OUTPUT"
+
+    - name: Create release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        name: ${{ steps.package.outputs.name }}
+      run: |
+        gh release create "mps-${GITHUB_RUN_NUMBER}" "$name.zip" --target "$GITHUB_SHA" --title "$name" \
+          --notes "Hardened sumo (Windows, Linux), netconvert and plain sumo-gui with --keyring-stdin. Built from $GITHUB_SHA. SHA256SUMS inside the zip."

@@ -269,6 +269,9 @@ namespace tcpip
 			self.sin_family = AF_INET;
 			self.sin_port = htons((unsigned short)port_);
 			self.sin_addr.s_addr = htonl(INADDR_ANY);
+			// a server socket constructed with a host listens on that address only (MPSDevelopment fork)
+			if (!host_.empty() && inet_pton(AF_INET, host_.c_str(), &self.sin_addr) != 1)
+				BailOnSocketError("tcpip::Socket::accept() Invalid listen address");
 
 			// Assign a port number to the socket
 			if ( bind(server_socket_, (struct sockaddr*)&self, sizeof(self)) != 0 )
