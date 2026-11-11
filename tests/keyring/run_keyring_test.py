@@ -92,6 +92,8 @@ class Env:
         if stdin is not None:
             proc.stdin.write(stdin)
         proc.stdin.close()
+        # Python 3.10's communicate() flushes a closed stdin pipe (ValueError); later versions skip it
+        proc.stdin = None
         return proc
 
     def finish(self, proc, kill=False):
