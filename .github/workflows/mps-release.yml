@@ -112,6 +112,34 @@ jobs:
           }
         Copy-Item "$env:OPENSSL_ROOT_DIR\share\openssl\copyright" -Destination dist\third-party\openssl_LICENSE.txt -ErrorAction SilentlyContinue
 
+    # What DARTS ships as simulation\sumo: sumo.exe and only the DLLs from bin it loads (imports and delay-load
+    # imports, followed through every DLL); system DLLs are not in bin and stay out.
+    - name: Collect the sumo runtime folder
+      shell: pwsh
+      run: |
+        $out = "dist\windows-sumo"
+        New-Item -ItemType Directory -Force -Path $out | Out-Null
+        $local = @{}
+        Get-ChildItem bin -Filter *.dll | ForEach-Object { $local[$_.Name.ToLowerInvariant()] = $_.Name }
+        $seen = @{}
+        $queue = [System.Collections.Generic.Queue[string]]::new()
+        $queue.Enqueue('sumo.exe')
+        while ($queue.Count -gt 0) {
+          $current = $queue.Dequeue()
+          $deps = dumpbin /dependents "bin\$current" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '\.dll$' }
+          foreach ($dep in $deps) {
+            $key = $dep.ToLowerInvariant()
+            if ($local.ContainsKey($key) -and -not $seen.ContainsKey($key)) {
+              $seen[$key] = $true
+              $queue.Enqueue($local[$key])
+            }
+          }
+        }
+        Copy-Item bin\sumo.exe -Destination $out
+        foreach ($key in $seen.Keys) { Copy-Item "bin\$($local[$key])" -Destination $out }
+        Get-ChildItem $out | Sort-Object Name | ForEach-Object { "{0,12}  {1}" -f $_.Length, $_.Name }
+        if (-not (Test-Path "$out\xerces-c_3_3.dll")) { throw "sumo runtime folder misses xerces-c: dependency walk failed" }
+
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: windows
@@ -181,6 +209,7 @@ jobs:
         name="eclipse-sumo-mps-${version}-${GITHUB_RUN_NUMBER}"
         mkdir -p "pkg/$name"
         cp -r artifacts/windows/windows "pkg/$name/windows"
+        cp -r artifacts/windows/windows-sumo "pkg/$name/windows-sumo"
         cp -r artifacts/windows/third-party "pkg/$name/third-party"
         cp -r artifacts/linux/linux "pkg/$name/linux"
         chmod +x "pkg/$name/linux/sumo"

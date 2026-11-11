@@ -72,7 +72,8 @@ ninja -C build-keyring sumo keyring_encrypt && (cd build-keyring && ctest -L key
 the workflow, static OpenSSL from vcpkg pinned to a commit, `x64-windows-static-md`; all actions pinned by commit SHA) builds hardened `sumo.exe`, plain `sumo-gui.exe` and
 `netconvert.exe`; Linux (ubuntu-22.04) builds hardened `sumo` with static libcrypto (still needs the system
 `libxerces-c`, `libproj`, zlib; see `linux/shared-libraries.txt` in the zip). Both run the keyring tests. The release
-`mps-<run>` holds one zip with `windows/`, `linux/`, `third-party/` licences, `LICENSE-EPL-2.0.txt`, `NOTICE.md`,
+`mps-<run>` holds one zip with `windows/`, `windows-sumo/` (sumo.exe and only the DLLs it loads, what DARTS ships as
+`simulation\sumo`), `linux/`, `third-party/` licences, `LICENSE-EPL-2.0.txt`, `NOTICE.md`,
 this file and `SHA256SUMS`.
 
 The upstream workflows (`windows.yml`, `linux.yml`, `macos.yml`, ...) still exist and run on pushes; disable them in
