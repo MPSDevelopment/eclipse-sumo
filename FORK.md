@@ -76,13 +76,16 @@ the workflow, static OpenSSL from vcpkg pinned to a commit, `x64-windows-static-
 `simulation\sumo`), `linux/`, `third-party/` licences, `LICENSE-EPL-2.0.txt`, `NOTICE.md`,
 this file and `SHA256SUMS`.
 
-The upstream workflows (`windows.yml`, `linux.yml`, `macos.yml`, ...) still exist and run on pushes; disable them in
-the repository's Actions settings if the CI minutes matter.
+`mps-release.yml` is the only workflow on `main` (as in the JSBSim fork): the upstream ones (`linux.yml`,
+`windows.yml`, `macos.yml`, ...) are deleted here, because GitHub runs the `schedule` triggers of every workflow on
+the default branch and their `push` triggers on every branch. They are also disabled in the Actions settings, so a
+branch that still carries them (`sumo-patches`, upstream merges) does not start them either.
 
 ## Rebasing onto upstream
 
 The patch is kept small on purpose. Fork-only files: `src/utils/xml/SUMOKeyring.{h,cpp}`, `src/utils/options/HardenedOptions.{h,cpp}`, `tests/keyring/`,
-`.github/workflows/mps-release.yml`, `FORK.md`. Touched upstream files (a few lines each):
+`.github/workflows/mps-release.yml`, `FORK.md`. Deleted upstream files: every other `.github/workflows/*.yml` (on a merge,
+keep them deleted and delete any new one). Touched upstream files (a few lines each):
 
 - `CMakeLists.txt`: the two options, `find_package(OpenSSL)`, `add_subdirectory(tests/keyring)`
 - `src/CMakeLists.txt`: `SUMO_HARDENED` define on the `sumo` target
