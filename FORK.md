@@ -78,8 +78,9 @@ this file and `SHA256SUMS`.
 
 `mps-release.yml` is the only workflow on `main` (as in the JSBSim fork): the upstream ones (`linux.yml`,
 `windows.yml`, `macos.yml`, ...) are deleted here, because GitHub runs the `schedule` triggers of every workflow on
-the default branch and their `push` triggers on every branch. They are also disabled in the Actions settings, so a
-branch that still carries them (`sumo-patches`, upstream merges) does not start them either.
+the default branch and their `push` triggers on every branch. GitHub cannot disable a workflow that is gone from the
+default branch, so a push to a branch that still carries them (`sumo-patches`, old upstream branches) starts them
+again: delete them on such a branch too, or do not push to it.
 
 ## Rebasing onto upstream
 
